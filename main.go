@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -33,18 +34,50 @@ func AddBook(w http.ResponseWriter, r *http.Request) {
 func ShowBook(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	val := vars["id"]
-	bookId, err := strconv.Atoi(val)
-	if err != nil {
-		json.NewEncoder(w).Encode(nil)
+	bookId, _ := strconv.Atoi(val)
+	index := indexByID(books, bookId)
+	if index < 0 {
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	for _, b := range books {
-		if b.Id == bookId {
-			json.NewEncoder(w).Encode(b)
-			return
-		}
+	w.Header().Add("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(books[index]); err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
-	json.NewEncoder(w).Encode(nil)
+}
+func DeleteBook(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	val := vars["id"]
+	bookId, _ := strconv.Atoi(val)
+	index := indexByID(books, bookId)
+	if index < 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	books = append(books[:index], books[index+1:]...)
+	w.WriteHeader(http.StatusOK)
+}
+func UpdateBook(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	bookId, _ := strconv.Atoi(id)
+	index := indexByID(books, bookId)
+	if index < 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	b := Book{}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	b.Id = bookId
+	books[index] = b
+	w.Header().Add("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(&b); err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 func initializeBooks() {
 	books = Books{
@@ -52,14 +85,24 @@ func initializeBooks() {
 		Book{Id: 2, Name: "Book 2", Description: "Book two"},
 	}
 }
+func indexByID(books []Book, id int) int {
+	for i := 0; i < len(books); i++ {
+		if books[i].Id == id {
+			return i
+		}
+	}
+	return -1
+}
 func main() {
 	initializeBooks()
 	r := mux.NewRouter()
+	booksRouter := r.PathPrefix("/books").Subrouter()
 	// Routes consist of a path and a handler function.
-	r.HandleFunc("/books", ListBooks).Methods("GET")
-	r.HandleFunc("/books", AddBook).Methods("POST")
-	r.HandleFunc("/getBook/{id}", ShowBook).Methods("GET")
-
+	booksRouter.HandleFunc("", ListBooks).Methods(http.MethodGet)
+	booksRouter.HandleFunc("", AddBook).Methods(http.MethodPost)
+	booksRouter.HandleFunc("/{id}", ShowBook).Methods(http.MethodGet)
+	booksRouter.HandleFunc("/{id}", DeleteBook).Methods(http.MethodDelete)
+	booksRouter.HandleFunc("/{id}", UpdateBook).Methods(http.MethodPut)
 	// Bind to a port and pass our router in
 	log.Fatal(http.ListenAndServe(":8000", r))
 }
